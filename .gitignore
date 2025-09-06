@@ -29,6 +29,7 @@ output.json
 # Misc
 *.apk
 *.ap_*
+!releases/*.apk
 
 # Kotlin/Java
 *.class
