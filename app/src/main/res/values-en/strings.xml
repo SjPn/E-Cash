@@ -1,6 +1,7 @@
 <resources>
-    <string name="app_name">E-Cash</string>
+    <string name="app_name">Ke$hЄ</string>
     <string name="balance">Balance</string>
+    <string name="year_balance">Year Balance</string>
     <string name="add_expense">Expense</string>
     <string name="add_income">Income</string>
     <string name="analytics">Analytics</string>
@@ -22,19 +23,26 @@
     <string name="filter_week">Week</string>
     <string name="filter_month">Month</string>
     <string name="filter_year">Year</string>
-    <string name="cat_home">Home</string>
-    <string name="cat_gifts">Gifts</string>
-    <string name="cat_food">Food</string>
-    <string name="cat_car">Car</string>
-    <string name="cat_it">IT</string>
-    <string name="cat_sport">Sport</string>
-    <string name="cat_other">Other</string>
-    <string name="cat_education">Education</string>
-    <string name="cat_tax">Tax</string>
-    <string name="cat_health">Health</string>
-    <string name="cat_leisure">Leisure</string>
     <string name="income_summary">Income summary</string>
     <string name="no_incomes">No incomes</string>
     <string name="add_income_title">Add Income</string>
     <string name="add_expense_title">Add Expense</string>
+    <string name="expenses_tab">Expenses</string>
+    <string name="income_tab">Income</string>
+    <string name="category_home">Home</string>
+    <string name="category_gifts">Gifts</string>
+    <string name="category_food">Food</string>
+    <string name="category_car">Car</string>
+    <string name="category_it">Mobile/Internet</string>
+    <string name="category_other">Other</string>
+    <string name="category_education">Education</string>
+    <string name="category_tax">Tax</string>
+    <string name="category_health">Health</string>
+    <string name="category_leisure">Leisure</string>
+    <string name="manage_categories">Manage Categories</string>
+    <string name="add_category">Add Category</string>
+    <string name="category_name">Category Name</string>
+    <string name="select_color">Select Color</string>
+    <string name="add">Add</string>
+    <string name="cancel">Cancel</string>
 </resources> 

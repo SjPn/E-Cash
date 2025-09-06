@@ -32,21 +32,16 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY date DESC")
     fun getAllTransactions(): Flow<List<Transaction>>
 
-    @Query("SELECT * FROM transactions WHERE date BETWEEN :startDate AND :endDate ORDER BY date DESC")
-    fun getTransactionsBetweenDates(startDate: Date, endDate: Date): Flow<List<Transaction>>
-
     @Query("SELECT category, SUM(amount) as total FROM transactions WHERE type = 'EXPENSE' GROUP BY category ORDER BY total DESC")
     fun getExpenseSumByCategory(): Flow<List<CategorySum>>
-
-    @Query("SELECT category, SUM(amount) as total FROM transactions WHERE type = 'EXPENSE' AND date BETWEEN :startDate AND :endDate GROUP BY category ORDER BY total DESC")
-    fun getExpenseSumByCategoryBetweenDates(startDate: Date, endDate: Date): Flow<List<CategorySum>>
 
     @Query("SELECT category, SUM(amount) as total FROM transactions WHERE type = 'INCOME' GROUP BY category ORDER BY total DESC")
     fun getIncomeSumByCategory(): Flow<List<CategorySum>>
 
-    @Query("SELECT category, SUM(amount) as total FROM transactions WHERE type = 'INCOME' AND date BETWEEN :startDate AND :endDate GROUP BY category ORDER BY total DESC")
-    fun getIncomeSumByCategoryBetweenDates(startDate: Date, endDate: Date): Flow<List<CategorySum>>
-
-    @Query("DELETE FROM transactions")
-    suspend fun deleteAll()
+    
+    @Query("UPDATE transactions SET category = :newCategory WHERE category = :oldCategory")
+    suspend fun updateTransactionsCategory(oldCategory: String, newCategory: String)
+    
+    @Query("SELECT * FROM transactions WHERE category = :categoryName")
+    fun getTransactionsByCategory(categoryName: String): Flow<List<Transaction>>
 } 

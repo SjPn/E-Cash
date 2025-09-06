@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import java.util.Date
 
 class Converters {
@@ -21,15 +23,29 @@ class Converters {
 }
 
 
-@Database(entities = [Transaction::class], version = 1, exportSchema = false)
+@Database(entities = [Transaction::class, UserCategory::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun transactionDao(): TransactionDao
+    abstract fun userCategoryDao(): UserCategoryDao
 
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS user_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        color INTEGER NOT NULL,
+                        isDefault INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+            }
+        }
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -38,6 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "budget_database"
                 )
+                .addMigrations(MIGRATION_1_2)
                 .build()
                 INSTANCE = instance
                 instance

@@ -7,6 +7,9 @@ import com.example.budget.data.CategorySum
 import com.example.budget.data.Transaction
 import com.example.budget.data.TransactionRepository
 import com.example.budget.data.TransactionType
+import com.example.budget.data.UserCategory
+import com.example.budget.data.CategoryRepository
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,27 +18,21 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.Calendar
-import java.util.Date
 
-enum class TimeFilter { ALL, WEEK, MONTH, YEAR }
 
-class BudgetViewModel(private val repository: TransactionRepository) : ViewModel() {
+class BudgetViewModel(
+    private val repository: TransactionRepository,
+    private val categoryRepository: CategoryRepository
+) : ViewModel() {
 
-    private val _timeFilter = MutableStateFlow(TimeFilter.ALL)
-    val timeFilter: StateFlow<TimeFilter> = _timeFilter
+    val transactions: StateFlow<List<Transaction>> = repository.allTransactions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val transactions: StateFlow<List<Transaction>> = _timeFilter.flatMapLatest { filter ->
-        getFilteredTransactions(filter)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val expenseByCategory: StateFlow<List<CategorySum>> = repository.expenseByCategory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val expenseByCategory: StateFlow<List<CategorySum>> = _timeFilter.flatMapLatest { filter ->
-        getFilteredExpenseByCategory(filter)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val incomeByCategory: StateFlow<List<CategorySum>> = _timeFilter.flatMapLatest { filter ->
-        getFilteredIncomeByCategory(filter)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val incomeByCategory: StateFlow<List<CategorySum>> = repository.incomeByCategory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val balance: StateFlow<Double> = transactions.combine(expenseByCategory) { transactions, _ ->
         val income = transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
@@ -51,46 +48,17 @@ class BudgetViewModel(private val repository: TransactionRepository) : ViewModel
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    fun setTimeFilter(filter: TimeFilter) {
-        _timeFilter.value = filter
-    }
+    // Category management methods
+    val categories = categoryRepository.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private fun getFilteredTransactions(filter: TimeFilter) = when (filter) {
-        TimeFilter.ALL -> repository.allTransactions
-        else -> {
-            val (start, end) = getDatesForFilter(filter)
-            repository.getTransactionsBetweenDates(start, end)
+    init {
+        // Initialize default categories only once when ViewModel is created
+        viewModelScope.launch {
+            categoryRepository.initializeDefaultCategories()
         }
     }
 
-    private fun getFilteredExpenseByCategory(filter: TimeFilter) = when (filter) {
-        TimeFilter.ALL -> repository.expenseByCategory
-        else -> {
-            val (start, end) = getDatesForFilter(filter)
-            repository.getExpenseSumByCategoryBetweenDates(start, end)
-        }
-    }
-
-    private fun getFilteredIncomeByCategory(filter: TimeFilter) = when (filter) {
-        TimeFilter.ALL -> repository.incomeByCategory
-        else -> {
-            val (start, end) = getDatesForFilter(filter)
-            repository.getIncomeSumByCategoryBetweenDates(start, end)
-        }
-    }
-
-    private fun getDatesForFilter(filter: TimeFilter): Pair<Date, Date> {
-        val calendar = Calendar.getInstance()
-        val endDate = calendar.time
-        when (filter) {
-            TimeFilter.WEEK -> calendar.add(Calendar.WEEK_OF_YEAR, -1)
-            TimeFilter.MONTH -> calendar.add(Calendar.MONTH, -1)
-            TimeFilter.YEAR -> calendar.add(Calendar.YEAR, -1)
-            TimeFilter.ALL -> calendar.timeInMillis = 0 // Should not be used with this path
-        }
-        val startDate = calendar.time
-        return Pair(startDate, endDate)
-    }
 
     fun insert(transaction: Transaction) = viewModelScope.launch {
         repository.insert(transaction)
@@ -110,13 +78,32 @@ class BudgetViewModel(private val repository: TransactionRepository) : ViewModel
     fun setEditTransactionId(id: Int?) {
         _editTransactionId.value = id
     }
+    
+    fun addCategory(name: String, color: Color) = viewModelScope.launch {
+        categoryRepository.addCategory(name, color)
+    }
+    
+    fun deleteCategory(category: UserCategory) = viewModelScope.launch {
+        categoryRepository.deleteCategory(category)
+    }
+    
+    fun updateCategory(category: UserCategory) = viewModelScope.launch {
+        categoryRepository.updateCategory(category)
+    }
+    
+    fun getTransactionsByCategory(categoryName: String) = repository.getTransactionsByCategory(categoryName)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    
 }
 
-class BudgetViewModelFactory(private val repository: TransactionRepository) : ViewModelProvider.Factory {
+class BudgetViewModelFactory(
+    private val repository: TransactionRepository,
+    private val categoryRepository: CategoryRepository
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BudgetViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return BudgetViewModel(repository) as T
+            return BudgetViewModel(repository, categoryRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

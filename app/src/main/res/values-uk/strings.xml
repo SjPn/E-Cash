@@ -1,6 +1,7 @@
 <resources>
-    <string name="app_name">E-Cash</string>
+    <string name="app_name">Ке$hЄ</string>
     <string name="balance">Поточний баланс</string>
+    <string name="year_balance">Річний баланс</string>
     <string name="add_expense">Покупки</string>
     <string name="add_income">Дохід</string>
     <string name="analytics">Аналітика</string>
@@ -32,11 +33,17 @@
     <string name="category_gifts">Подарунки</string>
     <string name="category_food">Їжа</string>
     <string name="category_car">Авто</string>
-    <string name="category_it">IT</string>
-    <string name="category_sport">Спорт</string>
+    <string name="category_it">Мобільні/Інтернет</string>
+
     <string name="category_other">Інше</string>
-    <string name="category_education">Освіта</string>
+    <string name="category_education">Ніка</string>
     <string name="category_tax">Податки</string>
-    <string name="category_health">Здоров’я</string>
+    <string name="category_health">Здоровя</string>
     <string name="category_leisure">Дозвілля</string>
+    <string name="manage_categories">Управління категоріями</string>
+    <string name="add_category">Додати категорію</string>
+    <string name="category_name">Назва категорії</string>
+    <string name="select_color">Вибрати колір</string>
+    <string name="add">Додати</string>
+    <string name="cancel">Скасувати</string>
 </resources> 

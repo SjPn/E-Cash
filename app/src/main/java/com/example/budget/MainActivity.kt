@@ -17,18 +17,23 @@ import androidx.navigation.navArgument
 import com.example.budget.ui.screens.AddTransactionScreen
 import com.example.budget.ui.screens.EditTransactionScreen
 import com.example.budget.ui.screens.HomeScreen
+import com.example.budget.ui.screens.CategoriesScreen
 import com.example.budget.ui.theme.BudgetTheme
 import com.example.budget.ui.viewmodel.BudgetViewModel
 import com.example.budget.ui.viewmodel.BudgetViewModelFactory
+import com.example.budget.data.CategoryRepository
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: BudgetViewModel by viewModels {
-        BudgetViewModelFactory((application as BudgetApp).repository)
+        val app = application as BudgetApp
+        BudgetViewModelFactory(app.repository, app.categoryRepository)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        
         setContent {
             BudgetTheme {
                 Surface(
@@ -72,6 +77,8 @@ fun BudgetAppNavigation(viewModel: BudgetViewModel) {
                 transactionId = backStackEntry.arguments?.getInt("transactionId")
             )
         }
-        // TODO: Add other screens here
+        composable("categories") {
+            CategoriesScreen(navController = navController, viewModel = viewModel)
+        }
     }
 } 

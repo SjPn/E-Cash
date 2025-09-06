@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,8 +28,8 @@ import com.example.budget.data.CategorySum
 import com.example.budget.data.Transaction
 import com.example.budget.data.TransactionType
 import com.example.budget.data.Categories
+import com.example.budget.data.UserCategory
 import com.example.budget.ui.viewmodel.BudgetViewModel
-import com.example.budget.ui.viewmodel.TimeFilter
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.platform.LocalContext
@@ -70,6 +71,59 @@ object LocaleHelper {
     }
 }
 
+// Function to get category color from user categories or fallback to default
+fun getCategoryColor(categoryName: String, categories: List<UserCategory>, isDark: Boolean = false): Color {
+    val userCategory = categories.find { it.name == categoryName }
+    return if (userCategory != null) {
+        userCategory.getColor()
+    } else {
+        if (isDark) {
+            Categories.darkCategoryColors[categoryName] ?: Color.Gray
+        } else {
+            Categories.colors[categoryName] ?: Color.Gray
+        }
+    }
+}
+
+// Вспомогательная функция для корректного сравнения месяцев
+fun isSameMonth(date: Date, targetMonth: Int, targetYear: Int): Boolean {
+    return try {
+        val cal = Calendar.getInstance().apply { 
+            time = date
+            // Сбрасываем время до начала дня для избежания проблем с часовыми поясами
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val result = cal.get(Calendar.MONTH) == targetMonth && cal.get(Calendar.YEAR) == targetYear
+        
+        
+        result
+    } catch (e: Exception) {
+        println("ERROR: Failed to compare months for date $date: ${e.message}")
+        false
+    }
+}
+
+// Вспомогательная функция для проверки года
+fun isSameYear(date: Date, targetYear: Int): Boolean {
+    return try {
+        val cal = Calendar.getInstance().apply { 
+            time = date
+            // Сбрасываем время до начала дня для избежания проблем с часовыми поясами
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        cal.get(Calendar.YEAR) == targetYear
+    } catch (e: Exception) {
+        println("ERROR: Failed to compare years for date $date: ${e.message}")
+        false
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -77,10 +131,7 @@ fun HomeScreen(
     viewModel: BudgetViewModel
 ) {
     val allTransactions by viewModel.transactions.collectAsState()
-    val expenseCategorySums by viewModel.expenseByCategory.collectAsState()
-    val incomeCategorySums by viewModel.incomeByCategory.collectAsState()
-    val selectedFilter by viewModel.timeFilter.collectAsState()
-    val balance by viewModel.balance.collectAsState()
+    val categories by viewModel.categories.collectAsState()
     var langMenuExpanded by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
     val baseContext = LocalContext.current
@@ -90,20 +141,55 @@ fun HomeScreen(
     val today = remember { Calendar.getInstance() }
     var currentMonth by remember { mutableStateOf(today.get(Calendar.MONTH)) }
     var currentYear by remember { mutableStateOf(today.get(Calendar.YEAR)) }
-
-    val filteredTransactions = remember(allTransactions, currentMonth, currentYear, selectedTab) {
-        allTransactions.filter {
-            val cal = Calendar.getInstance().apply { time = it.date }
-            cal.get(Calendar.MONTH) == currentMonth && cal.get(Calendar.YEAR) == currentYear &&
-                (if (selectedTab == 0) it.type == TransactionType.EXPENSE else it.type == TransactionType.INCOME)
+    
+    // Функция для автоматического переключения месяца при изменении транзакций
+    LaunchedEffect(allTransactions) {
+        // Проверяем, есть ли транзакции в текущем месяце
+        val hasTransactionsInCurrentMonth = allTransactions.any { transaction ->
+            isSameMonth(transaction.date, currentMonth, currentYear)
+        }
+        
+        // Если нет транзакций в текущем месяце, переключаемся на месяц с последней транзакцией
+        if (!hasTransactionsInCurrentMonth && allTransactions.isNotEmpty()) {
+            val lastTransaction = allTransactions.maxByOrNull { it.date }
+            lastTransaction?.let { transaction ->
+                val cal = Calendar.getInstance().apply { time = transaction.date }
+                currentMonth = cal.get(Calendar.MONTH)
+                currentYear = cal.get(Calendar.YEAR)
+            }
         }
     }
-    val filteredCategorySums = remember(filteredTransactions) {
+
+    // Фильтрация транзакций по текущему месяцу и году
+    val filteredTransactions = remember(allTransactions, currentMonth, currentYear, selectedTab) {
+        try {
+            
+            allTransactions.filter { transaction ->
+                try {
+                    val matchesMonth = isSameMonth(transaction.date, currentMonth, currentYear)
+                    val matchesType = if (selectedTab == 0) transaction.type == TransactionType.EXPENSE else transaction.type == TransactionType.INCOME
+                    
+                    matchesMonth && matchesType
+                } catch (e: Exception) {
+                    println("ERROR: Failed to filter transaction ${transaction.name}: ${e.message}")
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            println("ERROR: Failed to filter transactions: ${e.message}")
+            emptyList()
+        }
+    }
+
+    // Группировка по категориям для текущего месяца
+    val filteredCategorySums = remember(filteredTransactions, categories) {
         if (selectedTab == 0) {
-            Categories.list.map { cat ->
-                val sum = filteredTransactions.filter { it.category == cat }.sumOf { it.amount }
-                CategorySum(cat, sum)
+            // Используем все категории из базы данных (предопределенные + пользовательские)
+            categories.map { userCategory ->
+                val sum = filteredTransactions.filter { it.category == userCategory.name }.sumOf { it.amount }
+                CategorySum(userCategory.name, sum)
             }.filter { it.total > 0 }
+            .sortedByDescending { it.total } // Сортировка по убыванию суммы
         } else {
             listOf(CategorySum("INCOME", filteredTransactions.sumOf { it.amount }))
         }
@@ -114,8 +200,37 @@ fun HomeScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text(stringResource(R.string.app_name)) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    title = { 
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                    MaterialTheme.shapes.medium
+                                )
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.app_name),
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 2.sp
+                                ),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    },
                     actions = {
+                        IconButton(onClick = { navController.navigate("categories") }) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = "Manage Categories",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                         IconButton(onClick = { langMenuExpanded = true }) {
                             Icon(Icons.Default.Info, contentDescription = "Change language")
                         }
@@ -153,28 +268,119 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     val isDark = isSystemInDarkTheme()
-                    val totalIncome = allTransactions.filter { it.type == TransactionType.INCOME && Calendar.getInstance().apply { time = it.date }.let { c -> c.get(Calendar.MONTH) == currentMonth && c.get(Calendar.YEAR) == currentYear } }.sumOf { it.amount }
-                    val totalExpense = allTransactions.filter { it.type == TransactionType.EXPENSE && Calendar.getInstance().apply { time = it.date }.let { c -> c.get(Calendar.MONTH) == currentMonth && c.get(Calendar.YEAR) == currentYear } }.sumOf { it.amount }
+                    
+                    // Расчет баланса для текущего месяца
+                    val totalIncome = try {
+                        allTransactions.filter { 
+                            it.type == TransactionType.INCOME && isSameMonth(it.date, currentMonth, currentYear)
+                        }.sumOf { it.amount }
+                    } catch (e: Exception) {
+                        println("ERROR: Failed to calculate total income: ${e.message}")
+                        0.0
+                    }
+                    
+                    val totalExpense = try {
+                        allTransactions.filter { 
+                            it.type == TransactionType.EXPENSE && isSameMonth(it.date, currentMonth, currentYear)
+                        }.sumOf { it.amount }
+                    } catch (e: Exception) {
+                        println("ERROR: Failed to calculate total expense: ${e.message}")
+                        0.0
+                    }
+                    
                     val diff = totalIncome - totalExpense
                     val diffColor = if (diff >= 0) Color(0xFF4CAF50) else Color(0xFFF44336)
-                    Text(
-                        text = String.format(Locale.getDefault(), "%s: %.0f ₴", stringResource(R.string.balance), diff),
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onBackground,
+                    
+                    // Расчет годового баланса
+                    val yearIncome = try {
+                        allTransactions.filter { 
+                            it.type == TransactionType.INCOME && isSameYear(it.date, currentYear)
+                        }.sumOf { it.amount }
+                    } catch (e: Exception) {
+                        println("ERROR: Failed to calculate year income: ${e.message}")
+                        0.0
+                    }
+                    
+                    val yearExpense = try {
+                        allTransactions.filter { 
+                            it.type == TransactionType.EXPENSE && isSameYear(it.date, currentYear)
+                        }.sumOf { it.amount }
+                    } catch (e: Exception) {
+                        println("ERROR: Failed to calculate year expense: ${e.message}")
+                        0.0
+                    }
+                    
+                    val yearBalance = yearIncome - yearExpense
+                    val yearBalanceColor = if (yearBalance >= 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+                    
+                    // Отображение балансов в ряд
+                    Row(
                         modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(bottom = 4.dp)
-                    )
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.1f),
+                                MaterialTheme.shapes.medium
+                            )
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Месячный баланс
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = stringResource(R.string.balance),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = String.format(Locale.getDefault(), "%.0f ₴", diff),
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = diffColor
+                            )
+                        }
+                        
+                        // Разделитель
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(40.dp)
+                                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
+                        )
+                        
+                        // Годовой баланс
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = stringResource(R.string.year_balance),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = String.format(Locale.getDefault(), "%.0f ₴", yearBalance),
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = yearBalanceColor
+                            )
+                        }
+                    }
+                    
                     TabRow(selectedTabIndex = selectedTab, modifier = Modifier.fillMaxWidth()) {
                         Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text(stringResource(R.string.expenses_tab)) })
                         Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text(stringResource(R.string.income_tab)) })
                     }
+                    
+
+                    
                     Box(
                         modifier = Modifier
                             .weight(1f, fill = true)
                             .pointerInput(currentMonth, currentYear) {
                                 detectHorizontalDragGestures { change, dragAmount ->
                                     if (dragAmount > 40) {
+                                        // Свайп влево - предыдущий месяц
                                         if (currentMonth == 0) {
                                             currentMonth = 11
                                             currentYear -= 1
@@ -182,6 +388,7 @@ fun HomeScreen(
                                             currentMonth -= 1
                                         }
                                     } else if (dragAmount < -40) {
+                                        // Свайп вправо - следующий месяц
                                         if (currentMonth == 11) {
                                             currentMonth = 0
                                             currentYear += 1
@@ -210,6 +417,7 @@ fun HomeScreen(
                                     categorySums = filteredCategorySums,
                                     sum = sum,
                                     isExpenseTab = isExpenseTab,
+                                    categories = categories,
                                     showGray = filteredCategorySums.isEmpty(),
                                     incomeColors = if (!isExpenseTab) incomeColors else null,
                                     month = currentMonth,
@@ -237,6 +445,7 @@ fun HomeScreen(
                             CategorySummary(
                                 categorySums = filteredCategorySums,
                                 transactions = filteredTransactions,
+                                categories = categories,
                                 onEditTransaction = { id -> navController.navigate("edit/$id") },
                                 isIncomeTab = selectedTab == 1
                             )
@@ -249,19 +458,20 @@ fun HomeScreen(
 }
 
 @Composable
-fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transaction>, onEditTransaction: (Int) -> Unit, isIncomeTab: Boolean = false) {
+fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transaction>, onEditTransaction: (Int) -> Unit, categories: List<UserCategory>, isIncomeTab: Boolean = false) {
     val expandedCategories = remember { mutableStateListOf<String>() }
     val isDark = isSystemInDarkTheme()
     val sum = categorySums.sumOf { it.total }
+    
     Column(modifier = Modifier
         .fillMaxWidth()
         .padding(16.dp)
     ) {
         if (isIncomeTab) {
             val color = if (isDark) Color(0xFF43A047) else Color(0xFF43A047)
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
                     .padding(vertical = 4.dp)
                     .border(2.dp, color, MaterialTheme.shapes.medium),
                 colors = if (isDark)
@@ -269,13 +479,13 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
                 else
                     CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
+    ) {
                 val textColor = if (isDark) Color.White else Color.Black
                 Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
-                    ) {
+        ) {
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = "Income",
@@ -289,7 +499,7 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
                             modifier = Modifier.padding(start = 8.dp, end = 8.dp)
                         )
                         Spacer(modifier = Modifier.weight(1f))
-                        Text(
+            Text(
                             text = String.format(Locale.getDefault(), "%.0f ₴", categorySums.firstOrNull()?.total ?: 0.0),
                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                             color = textColor
@@ -299,12 +509,12 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
                         val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
                         val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
                         transactions.sortedByDescending { it.date }.forEach { transaction ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
                                     .clickable { onEditTransaction(transaction.id) },
                                 horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
+    ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = transaction.name,
@@ -329,10 +539,10 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
             }
         } else {
             categorySums.forEach { summary ->
-                val color = if (isDark) com.example.budget.data.Categories.darkCategoryColors[summary.category] ?: Color.Gray else com.example.budget.data.Categories.colors[summary.category] ?: Color.Gray
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
+                val color = getCategoryColor(summary.category, categories, isDark)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
                         .padding(vertical = 4.dp)
                         .border(2.dp, color, MaterialTheme.shapes.medium),
                     colors = if (isDark)
@@ -344,16 +554,16 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
                     Column(modifier = Modifier
                         .padding(12.dp)
                         .fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (expandedCategories.contains(summary.category)) {
-                                        expandedCategories.remove(summary.category)
-                                    } else {
-                                        expandedCategories.add(summary.category)
-                                    }
-                                },
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (expandedCategories.contains(summary.category)) {
+                                    expandedCategories.remove(summary.category)
+                                } else {
+                                    expandedCategories.add(summary.category)
+                                }
+                            },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val icon = com.example.budget.data.Categories.icons[summary.category] ?: com.example.budget.data.Categories.icons["OTHER"]!!
@@ -375,38 +585,40 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
                                 modifier = Modifier.weight(1f),
                                 contentAlignment = Alignment.Center
                             ) {
-                                val categoryResId = when (summary.category) {
-                                    "HOME" -> R.string.category_home
-                                    "GIFTS" -> R.string.category_gifts
-                                    "FOOD" -> R.string.category_food
-                                    "CAR" -> R.string.category_car
-                                    "IT" -> R.string.category_it
-                                    "SPORT" -> R.string.category_sport
-                                    "OTHER" -> R.string.category_other
-                                    "EDUCATION" -> R.string.category_education
-                                    "TAX" -> R.string.category_tax
-                                    "HEALTH" -> R.string.category_health
-                                    "LEISURE" -> R.string.category_leisure
-                                    else -> R.string.category_other
-                                }
                                 Text(
-                                    text = stringResource(categoryResId),
+                                    text = when (summary.category) {
+                                        "HOME" -> stringResource(R.string.category_home)
+                                        "GIFTS" -> stringResource(R.string.category_gifts)
+                                        "FOOD" -> stringResource(R.string.category_food)
+                                        "CAR" -> stringResource(R.string.category_car)
+                                        "IT" -> stringResource(R.string.category_it)
+                                        "OTHER" -> stringResource(R.string.category_other)
+                                        "EDUCATION" -> stringResource(R.string.category_education)
+                                        "TAX" -> stringResource(R.string.category_tax)
+                                        "HEALTH" -> stringResource(R.string.category_health)
+                                        "LEISURE" -> stringResource(R.string.category_leisure)
+                                        else -> summary.category // Показываем имя пользовательской категории как есть
+                                    },
                                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                                     color = textColor
                                 )
                             }
-                            Text(
+                        Text(
                                 text = String.format(Locale.getDefault(), "%.0f ₴", summary.total),
                                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                                 color = textColor
-                            )
-                        }
-                        if (expandedCategories.contains(summary.category)) {
+                        )
+                    }
+                    if (expandedCategories.contains(summary.category)) {
                             val isExpense = transactions.firstOrNull()?.type == TransactionType.EXPENSE || transactions.isEmpty()
                             val filtered = transactions.filter { it.category == summary.category && (if (isExpense) it.type == TransactionType.EXPENSE else it.type == TransactionType.INCOME) }
                             val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
                             val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-                            val grouped = filtered.groupBy { dateFormat.format(it.date) }
+                            val grouped = filtered.groupBy { transaction ->
+                                // Используем нашу вспомогательную функцию для корректного форматирования даты
+                                val cal = Calendar.getInstance().apply { time = transaction.date }
+                                dateFormat.format(cal.time)
+                            }
                             Column(modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp)) {
                                 var isFirst = true
                                 grouped.forEach { (date, txns) ->
@@ -434,12 +646,12 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
                                                 modifier = Modifier.padding(bottom = 4.dp)
                                             )
                                             txns.forEach { transaction ->
-                                                Row(
+                                Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
                                                         .clickable { onEditTransaction(transaction.id) },
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
                                                     Column(modifier = Modifier.weight(1f)) {
                                                         Text(
                                                             text = transaction.name,
@@ -452,11 +664,11 @@ fun CategorySummary(categorySums: List<CategorySum>, transactions: List<Transact
                                                             color = if (isDark) Color(0xFFBDBDBD) else Color(0xFF888888)
                                                         )
                                                     }
-                                                    Text(
+                                    Text(
                                                         text = String.format(Locale.getDefault(), "%.0f ₴", transaction.amount),
                                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                                         color = textColor
-                                                    )
+                                    )
                                                 }
                                             }
                                         }
@@ -483,6 +695,7 @@ fun ExpensePieChart(
     categorySums: List<CategorySum>,
     sum: Double,
     isExpenseTab: Boolean,
+    categories: List<UserCategory>,
     showGray: Boolean = false,
     incomeColors: List<Color>? = null,
     month: Int? = null,
@@ -495,6 +708,7 @@ fun ExpensePieChart(
         if (month != null && year != null) {
             cal.set(Calendar.MONTH, month)
             cal.set(Calendar.YEAR, year)
+            cal.set(Calendar.DAY_OF_MONTH, 1) // Устанавливаем первый день месяца для корректного отображения
         }
         java.text.SimpleDateFormat("LLLL yyyy", locale).format(cal.time).replaceFirstChar { it.uppercase(locale) }
     }
@@ -508,11 +722,11 @@ fun ExpensePieChart(
         Box(
             modifier = Modifier.size(220.dp),
             contentAlignment = Alignment.Center
-        ) {
-            Canvas(
-                modifier = Modifier.size(220.dp)
             ) {
-                var startAngle = -90f
+                Canvas(
+                modifier = Modifier.size(220.dp)
+                ) {
+                    var startAngle = -90f
                 if (showGray) {
                     drawArc(
                         color = Color(0xFFBDBDBD), // светло-серый
@@ -525,7 +739,7 @@ fun ExpensePieChart(
                     categorySums.forEachIndexed { idx, summary ->
                         val sweepAngle = if (total > 0) (summary.total / total * 360).toFloat() else 0f
                         val color = incomeColors?.getOrNull(idx % incomeColors.size)
-                            ?: com.example.budget.data.Categories.colors[summary.category] ?: Color.Gray
+                            ?: getCategoryColor(summary.category, categories)
                         drawArc(
                             color = color,
                             startAngle = startAngle,
